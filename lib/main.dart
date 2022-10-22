@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:youtube_to_mp3/ytmp3/ytmp3_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -24,7 +25,7 @@ class MyApp extends StatelessWidget {
         // is not restarted.
         primarySwatch: Colors.blue,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const Ytmp3Screen(),
       debugShowCheckedModeBanner: false,
     );
   }
