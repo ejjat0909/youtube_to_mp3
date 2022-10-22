@@ -1,224 +1,31 @@
-import 'dart:io';
-import 'dart:isolate';
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:youtube_to_mp3/model/result.dart';
+import 'package:flutter/src/widgets/container.dart';
+import 'package:flutter/src/widgets/framework.dart';
+import 'package:youtube_to_mp3/constant.dart';
+import 'package:youtube_to_mp3/ytmp3/body.dart';
 
-class Ytmp3Screen extends StatefulWidget {
-  const Ytmp3Screen({super.key});
+class YtMp3Screen extends StatefulWidget {
+  const YtMp3Screen({super.key});
 
   @override
-  State<Ytmp3Screen> createState() => _Ytmp3ScreenState();
+  State<YtMp3Screen> createState() => _YtMp3ScreenState();
 }
 
-class _Ytmp3ScreenState extends State<Ytmp3Screen> {
-  late Result result;
-  String url = "";
-  String title = "";
-  String thumb = "";
-  String filesize_audio = "";
-  String filesize_video = "";
-  String audio = "";
-  String audio_ori = "";
-  String video = "";
-  String video_ori = "";
-  String progress = "";
-  bool isLoading = false;
-  String directory = "";
-
-  final textController = TextEditingController();
-  final padding = const EdgeInsets.all(8.0);
-  var dio = Dio();
-
-  Future getDownloadPath() async {
-    Directory? directory;
-    try {
-      if (Platform.isIOS) {
-        directory = await getApplicationDocumentsDirectory();
-      } else {
-        directory = Directory('/storage/emulated/0/Download');
-
-        if (!await directory.exists()) {
-          directory = await getExternalStorageDirectory();
-        }
-      }
-    } catch (err) {
-      print("Cannot get download folder path");
-    }
-    return directory!.path;
-  }
-
-  Future downloadVideo(String url, String name, String format) async {
-    getDownloadPath().then((value) {
-      setState(() {
-        isLoading = true;
-        directory = value!;
-      });
-    });
-
-    // final baseStorage = await getExternalStorageDirectory();
-    await dio.download(url, "$directory/$name$format",
-        onReceiveProgress: (rec, total) {
-      setState(() {
-        isLoading = false;
-        progress = "Downloading.. ${((rec / total) * 100).toStringAsFixed(0)}%";
-      });
-    });
-    setState(() {
-      if (progress.contains('100')) {
-        progress = "Download Successful";
-      }
-    });
-  }
-
+class _YtMp3ScreenState extends State<YtMp3Screen> {
   @override
   Widget build(BuildContext context) {
-    final padding = EdgeInsets.all(8.0);
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        centerTitle: true,
         backgroundColor: Colors.transparent,
         elevation: 0,
+        centerTitle: true,
         title: const Text(
-          "Youtube to Mp3",
-          style: TextStyle(color: Colors.black),
+          "Youtube Downloader",
+          style: TextStyle(color: kPrimaryColor),
         ),
       ),
-      body: Center(
-        child: Padding(
-          padding: padding,
-          child: SingleChildScrollView(
-            physics: BouncingScrollPhysics(),
-            child: Column(
-              children: [
-                Padding(
-                  padding: padding,
-                  child: Column(
-                    children: [
-                      Image.network(
-                        thumb != ""
-                            ? thumb
-                            : "https://i.ibb.co/qYTFsDx/placeholder.png",
-                        height: 150,
-                        width: 150,
-                      ),
-                      Text(title),
-                      SizedBox(
-                        height: 20,
-                      ),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          ElevatedButton(
-                            onPressed: () {
-                              downloadVideo(audio, title, ".mp3");
-                            },
-                            child: Row(
-                              children: [
-                                Text(
-                                  "MP3",
-                                  style: TextStyle(fontSize: 16),
-                                ),
-                                SizedBox(
-                                  width: 10,
-                                ),
-                                Text(
-                                  filesize_audio,
-                                  style: TextStyle(fontSize: 12),
-                                )
-                              ],
-                            ),
-                          ),
-                          SizedBox(
-                            width: 20,
-                          ),
-                          ElevatedButton(
-                            onPressed: () {
-                              downloadVideo(video, title, ".mp4");
-                            },
-                            child: Row(
-                              children: [
-                                Text(
-                                  "MP4",
-                                  style: TextStyle(fontSize: 16),
-                                ),
-                                SizedBox(
-                                  width: 10,
-                                ),
-                                Text(
-                                  filesize_video,
-                                  style: TextStyle(fontSize: 12),
-                                )
-                              ],
-                            ),
-                          )
-                        ],
-                      )
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: padding,
-                  child: TextField(
-                    controller: textController,
-                    decoration: InputDecoration(
-                        contentPadding: EdgeInsets.all(8.0),
-                        hintText: "Paste link youtubenya disini cantik",
-                        suffixIcon: IconButton(
-                          icon: Icon(Icons.search),
-                          onPressed: () async {
-                            setState(() {
-                              url = textController.text;
-                              isLoading = true;
-                            });
-                            await Result.connectToApi(url).then((value) {
-                              result = value;
-                              setState(() {
-                                title = result.title!;
-                                thumb = result.thumb!;
-                                filesize_audio = result.filesize_audio!;
-                                filesize_video = result.filesize_video!;
-                                audio = result.audio!;
-                                audio_ori = result.audio_ori!;
-                                video = result.video!;
-                                video_ori = result.video_ori!;
-                                isLoading = false;
-                              });
-                            });
-                          },
-                        )),
-                    onSubmitted: (url) =>
-                        Result.connectToApi(url).then((value) {
-                      setState(() {
-                        title = result.title!;
-                        thumb = result.thumb!;
-                        filesize_audio = result.filesize_audio!;
-                        filesize_video = result.filesize_video!;
-                        audio = result.audio!;
-                        audio_ori = result.audio_ori!;
-                        video = result.video!;
-                        video_ori = result.video_ori!;
-                      });
-                    }),
-                  ),
-                ),
-                const SizedBox(
-                  height: 20,
-                ),
-                isLoading
-                    ? const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(16.0),
-                          child: CircularProgressIndicator(),
-                        ),
-                      )
-                    : Text(progress),
-              ],
-            ),
-          ),
-        ),
-      ),
+      body: Body(),
     );
   }
 }
