@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:android_path_provider/android_path_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_scale_tap/flutter_scale_tap.dart';
+
 import 'package:permission_handler/permission_handler.dart';
 import 'package:transparent_image/transparent_image.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
@@ -67,109 +68,208 @@ class _BodyState extends State<Body> {
   }
 
   void downloadVideo({String? link, bool? isVideo}) async {
+    var validURL = Uri.tryParse(link!)?.hasAbsolutePath ?? false;
+    print(validURL);
     setState(() {
       clicked = true;
     });
 
-    late BuildContext dialogContext;
-    CustomDialog.show(
-      context,
-      title: "Downloading . . .",
-      isDissmissable: false,
-      center: Builder(builder: (BuildContext context) {
-        dialogContext = context;
-        return const Center(
-          child: CircularProgressIndicator(),
-        );
-      }),
-    );
+    if (link == "") {
+      CustomDialog.show(
+        context,
+        title: "Link is empty",
+        btnOkText: "Ohh",
+        btnOkOnPress: () {
+          Navigator.pop(context);
+        },
+      );
+      setState(() {
+        clicked = false;
+      });
+    } else {
+      late BuildContext dialogContext;
 
-    YoutubeExplode yt = YoutubeExplode();
-    try {
-      var manifest = await yt.videos.streamsClient.getManifest(link);
-      var vid = await yt.videos.get(link);
-      print(vid.thumbnails.standardResUrl);
+      CustomDialog.show(
+        context,
+        title: "Downloading . . .",
+        isDissmissable: false,
+        center: Builder(builder: (BuildContext context) {
+          dialogContext = context;
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }),
+      );
 
-      if (isVideo!) {
-        var directory = await AndroidPathProvider.downloadsPath;
-        var info = manifest.muxed.sortByVideoQuality().first;
-        var stream = yt.videos.streams.get(info);
-        var file =
-            await File("$directory/${vid.title.replaceAll("/", " ")}.mp4")
+      YoutubeExplode yt = YoutubeExplode();
+
+      String charReplace(String str) {
+        str = str.replaceAll(r'\', " ");
+        str = str.replaceAll("/", " ");
+        str = str.replaceAll(">", " ");
+        str = str.replaceAll("<", " ");
+        str = str.replaceAll("*", " ");
+        str = str.replaceAll("?", " ");
+        str = str.replaceAll(r'"', " ");
+        str = str.replaceAll(":", " ");
+        str = str.replaceAll("|", "-");
+
+        return str;
+      }
+
+      try {
+        var video = await yt.videos.get(link);
+        print(video);
+        // print(r'"');
+        try {
+          var manifest = await yt.videos.streamsClient.getManifest(link);
+          var vid = await yt.videos.get(link);
+          print(vid.thumbnails.standardResUrl);
+
+          if (isVideo!) {
+            var directory = await AndroidPathProvider.downloadsPath;
+            var info = manifest.muxed.sortByVideoQuality().first;
+            var stream = yt.videos.streams.get(info);
+            var newDr = "$directory/YouMp3 Video";
+            var replaceTitle = charReplace(vid.title);
+            var file =
+                await File("$newDr/$replaceTitle.mp4").create(recursive: true);
+            var fileStream = file.openWrite();
+            await stream.pipe(fileStream);
+            await fileStream.flush();
+            await fileStream.close();
+            Navigator.pop(dialogContext);
+
+            // ignore: use_build_context_synchronously
+            await CustomDialog.show(
+              context,
+              title: "Download Video Complete",
+              top: const Center(
+                child: Icon(
+                  Icons.check_circle,
+                  size: 70,
+                  color: kPrimaryColor,
+                ),
+              ),
+              center: Center(
+                child: Text(
+                  "Downloaded in ${file.path}",
+                ),
+              ),
+              btnOkText: "OK",
+              btnOkOnPress: (() {
+                Navigator.pop(context);
+              }),
+            );
+            setState(() {
+              clicked = false;
+            });
+          } else {
+            var directory = await AndroidPathProvider.downloadsPath;
+            var musicDirectory = await AndroidPathProvider.musicPath;
+            print("directoy music");
+            print(directory.toString());
+            var info = manifest.audioOnly.sortByBitrate().first;
+            var stream = yt.videos.streams.get(info);
+            var replaceTitle = charReplace(vid.title);
+            print(stream);
+
+            var newDr = "$directory/YouMp3 Music";
+
+            var file = await File("$musicDirectory/$replaceTitle.mp3")
                 .create(recursive: true);
-        var fileStream = file.openWrite();
-        await stream.pipe(fileStream);
-        await fileStream.flush();
-        await fileStream.close();
-        Navigator.pop(dialogContext);
+            var fileStream = file.openWrite();
+            print(fileStream);
+            await stream.pipe(fileStream);
 
-        // ignore: use_build_context_synchronously
-        await CustomDialog.show(
-          context,
-          title: "Download Video Complete",
-          top: const Center(
-            child: Icon(
-              Icons.check_circle,
-              size: 70,
-              color: kPrimaryColor,
-            ),
-          ),
-          center: Center(
-            child: Text(
-              "Downloaded in ${file.path}",
-            ),
-          ),
-          btnOkText: "OK",
-          btnOkOnPress: (() {
+            await fileStream.flush();
+            await fileStream.close();
             Navigator.pop(context);
-          }),
+            // ignore: use_build_context_synchronously
+            await CustomDialog.show(
+              context,
+              title: "Download Music Complete",
+              top: const Center(
+                child: Icon(
+                  Icons.check_circle,
+                  size: 70,
+                  color: kPrimaryColor,
+                ),
+              ),
+              center: Center(
+                child: Text(
+                  "Downloaded in ${file.path}",
+                ),
+              ),
+              btnOkText: "OK",
+              btnOkOnPress: (() {
+                Navigator.pop(context);
+              }),
+            );
+
+            setState(() {
+              clicked = false;
+            });
+          }
+        } on ArgumentError {
+          // ignore: use_build_context_synchronously
+          Navigator.pop(context);
+          // ignore: use_build_context_synchronously
+          CustomDialog.show(
+            context,
+            title: "Something Went Wrong",
+            btnOkText: "I see",
+            btnOkOnPress: () {
+              Navigator.pop(context);
+            },
+          );
+          setState(() {
+            clicked = false;
+          });
+        } on VideoUnavailableException {
+          // ignore: use_build_context_synchronously
+          Navigator.pop(context);
+          // ignore: use_build_context_synchronously
+          CustomDialog.show(
+            context,
+            title: "This is video is not available",
+            btnOkText: "I see",
+            btnOkOnPress: () {
+              Navigator.pop(context);
+            },
+          );
+          setState(() {
+            clicked = false;
+          });
+        }
+      } on ArgumentError {
+        Navigator.pop(context);
+        CustomDialog.show(
+          context,
+          title: "Link is invalid",
+          btnOkText: "I see",
+          btnOkOnPress: () {
+            Navigator.pop(context);
+          },
         );
         setState(() {
           clicked = false;
         });
-      } else {
-        var directory = await AndroidPathProvider.downloadsPath;
-        var info = manifest.audioOnly.sortByBitrate().first;
-        var stream = yt.videos.streams.get(info);
-        print(stream);
-
-        var file =
-            await File("$directory/${vid.title.replaceAll("/", " ")}.mp3")
-                .create(recursive: true);
-        var fileStream = file.openWrite();
-        print(fileStream);
-        await stream.pipe(fileStream);
-
-        await fileStream.flush();
-        await fileStream.close();
+      } on VideoUnavailableException {
         Navigator.pop(context);
-        // ignore: use_build_context_synchronously
-        await CustomDialog.show(
+        CustomDialog.show(
           context,
-          title: "Download Music Complete",
-          top: const Center(
-            child: Icon(
-              Icons.check_circle,
-              size: 70,
-              color: kPrimaryColor,
-            ),
-          ),
-          center: Center(
-            child: Text(
-              "Downloaded in ${file.path}",
-            ),
-          ),
-          btnOkText: "OK",
-          btnOkOnPress: (() {
+          title: "Link is invalid",
+          btnOkText: "I see",
+          btnOkOnPress: () {
             Navigator.pop(context);
-          }),
+          },
         );
         setState(() {
           clicked = false;
         });
       }
-    } on ArgumentError {
-    } on VideoUnavailableException {}
+    }
   }
 
   void showDialog() {
@@ -187,7 +287,8 @@ class _BodyState extends State<Body> {
   Future<void> askPermission() async {
     PermissionStatus status = await Permission.storage.request();
     if (status.isGranted == true) {
-      search(_urlController.value.text);
+      ThemeSnackBar.showSnackBar(context, "Extracting...");
+      search(_urlController.value.text.trim());
     } else {
       status;
     }
@@ -217,10 +318,9 @@ class _BodyState extends State<Body> {
                   if (_urlController.text == "") {
                     showDialog();
                   } else {
-                    ThemeSnackBar.showSnackBar(context, "Extracting...");
                     askPermission();
 
-                    print(_urlController.text);
+                    print(_urlController.text.trim());
                   }
                 },
                 child: Container(
@@ -246,10 +346,12 @@ class _BodyState extends State<Body> {
                         ScaleTap(
                           onPressed: clicked
                               ? null
-                              : () => downloadVideo(
-                                    link: _urlController.value.text,
+                              : () {
+                                  downloadVideo(
+                                    link: _urlController.value.text.trim(),
                                     isVideo: false,
-                                  ),
+                                  );
+                                },
                           child: Container(
                             padding: EdgeInsets.all(10),
                             decoration: BoxDecoration(
@@ -276,10 +378,12 @@ class _BodyState extends State<Body> {
                         ScaleTap(
                           onPressed: clicked
                               ? null
-                              : () => downloadVideo(
-                                    link: _urlController.value.text,
+                              : () {
+                                  downloadVideo(
+                                    link: _urlController.value.text.trim(),
                                     isVideo: true,
-                                  ),
+                                  );
+                                },
                           child: Container(
                             padding: EdgeInsets.all(10),
                             decoration: BoxDecoration(
