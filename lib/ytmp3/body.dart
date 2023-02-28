@@ -10,6 +10,8 @@ import 'package:youtube_to_mp3/constant.dart';
 import 'package:youtube_to_mp3/public_component/custom_dialog.dart';
 import 'package:youtube_to_mp3/public_component/theme_snack_bar.dart';
 import 'package:youtube_to_mp3/theme.dart';
+import 'package:http/http.dart' as http;
+import 'package:flutter_ffmpeg/flutter_ffmpeg.dart';
 
 class Body extends StatefulWidget {
   const Body({super.key});
@@ -67,6 +69,65 @@ class _BodyState extends State<Body> {
     yt.close();
   }
 
+  Future<String> _setMetadata(String filepath, String thumbnailPath) async {
+    try {
+      // Set the metadata on the video file
+      await FlutterFFmpeg().executeWithArguments([
+        '-i',
+        filepath,
+        '-metadata',
+        'title=My Video Title',
+        '-metadata',
+        'artist=My Name',
+        '-c',
+        'copy',
+        '-map',
+        '0',
+        '-movflags',
+        '+faststart',
+        '-hide_banner',
+        '-y',
+        filepath
+      ]);
+
+      // Create a thumbnail image
+      await FlutterFFmpeg().executeWithArguments([
+        '-i',
+        filepath,
+        '-ss',
+        '00:00:01.000',
+        '-vframes',
+        '1',
+        thumbnailPath
+      ]);
+
+      // Return success message
+      return "Metadata and thumbnail set successfully";
+    }
+    //  on FFmpegExecuteException catch (e) {
+    //   if (e.arguments.contains('already running')) {
+    //     // Handle if a command is already running
+    //     return "Error setting metadata and thumbnail: command already running";
+    //   } else if (e.arguments.contains('not found')) {
+    //     // Handle if FFmpeg is not found
+    //     return "Error setting metadata and thumbnail: FFmpeg not found";
+    //   } else if (e.arguments.contains('not supported')) {
+    //     // Handle if FFmpeg is not supported on this platform
+    //     return "Error setting metadata and thumbnail: FFmpeg not supported";
+    //   } else if (e.arguments.contains('terminated')) {
+    //     // Handle if the command is terminated
+    //     return "Error setting metadata and thumbnail: command terminated";
+    //   } else {
+    //     // Handle any other exceptions
+    //     return "Error setting metadata and thumbnail: ${e.toString()}";
+    //   }
+    // }
+    catch (e) {
+      // Handle any other exceptions
+      return "Error setting metadata and thumbnail: $e";
+    }
+  }
+
   void downloadVideo({String? link, bool? isVideo}) async {
     var validURL = Uri.tryParse(link!)?.hasAbsolutePath ?? false;
     print(validURL);
@@ -120,6 +181,7 @@ class _BodyState extends State<Body> {
       try {
         var video = await yt.videos.get(link);
         print(video);
+        var thumbnailUrl = video.thumbnails.standardResUrl;
         // print(r'"');
         try {
           var manifest = await yt.videos.streamsClient.getManifest(link);
@@ -138,6 +200,15 @@ class _BodyState extends State<Body> {
             await stream.pipe(fileStream);
             await fileStream.flush();
             await fileStream.close();
+            // Download the thumbnail image file
+            var thumbnailResponse = await http.get(Uri.parse(thumbnailUrl));
+            var thumbnailBytes = thumbnailResponse.bodyBytes;
+            var thumbnailFile =
+                await File("$newDr/$replaceTitle.jpg").create(recursive: true);
+            await thumbnailFile.writeAsBytes(thumbnailBytes);
+
+            // Set the video thumbnail as the metadata of the downloaded video file
+            await _setMetadata(file.path, thumbnailFile.path);
             Navigator.pop(dialogContext);
 
             // ignore: use_build_context_synchronously
@@ -184,6 +255,15 @@ class _BodyState extends State<Body> {
 
             await fileStream.flush();
             await fileStream.close();
+            // Download the thumbnail image file
+            var thumbnailResponse = await http.get(Uri.parse(thumbnailUrl));
+            var thumbnailBytes = thumbnailResponse.bodyBytes;
+            var thumbnailFile = await File("$musicDirectory/$replaceTitle.jpg")
+                .create(recursive: true);
+            await thumbnailFile.writeAsBytes(thumbnailBytes);
+
+            // Set the music thumbnail as the metadata of the downloaded music file
+            await _setMetadata(file.path, thumbnailFile.path);
             Navigator.pop(context);
             // ignore: use_build_context_synchronously
             await CustomDialog.show(

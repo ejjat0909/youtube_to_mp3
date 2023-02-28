@@ -38,6 +38,8 @@ dependencies:
   youtube_explode_dart: ^1.12.1
   android_path_provider: ^0.3.0
   flutter_scale_tap: ^1.0.5
+  http: ^0.13.5
+  flutter_ffmpeg: ^0.4.2
  
 
 dev_dependencies:
