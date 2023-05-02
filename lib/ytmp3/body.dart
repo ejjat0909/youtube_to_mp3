@@ -570,10 +570,7 @@ class _BodyState extends State<Body> {
               const SizedBox(
                 height: 10,
               ),
-              const Text(
-                "2022 \u00a9 Muhammad Izzat Mohamad Rizal",
-                style: TextStyle(color: kPrimaryColor),
-              )
+
             ],
           ),
         ),
