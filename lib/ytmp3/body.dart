@@ -1,16 +1,23 @@
+import 'dart:async';
 import 'dart:io';
+
 import 'package:android_path_provider/android_path_provider.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_scale_tap/flutter_scale_tap.dart';
-
+import 'package:dio/dio.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:transparent_image/transparent_image.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import 'package:youtube_to_mp3/constant.dart';
 import 'package:youtube_to_mp3/public_component/custom_dialog.dart';
+import 'package:youtube_to_mp3/public_component/loading_gif_dialogue.dart';
+import 'package:youtube_to_mp3/public_component/method.dart';
+import 'package:youtube_to_mp3/public_component/show_dialogue.dart';
 import 'package:youtube_to_mp3/public_component/theme_snack_bar.dart';
 import 'package:youtube_to_mp3/theme.dart';
 
+import 'package:path_provider/path_provider.dart' as path_provider;
 
 class Body extends StatefulWidget {
   const Body({super.key});
@@ -20,6 +27,7 @@ class Body extends StatefulWidget {
 }
 
 class _BodyState extends State<Body> {
+  final String _extractedLink = 'Loading...';
   final _urlController = TextEditingController();
   bool disabled = true;
   bool clicked = false;
@@ -30,7 +38,7 @@ class _BodyState extends State<Body> {
   String _thumbnail =
       "https://www.talkhelper.com/wp-content/uploads/2020/01/youtube-to-mp3.png";
 
-  void search(e) async {
+  Future<void> search(e) async {
     var yt = YoutubeExplode();
     try {
       var video = await yt.videos.get(e);
@@ -68,11 +76,13 @@ class _BodyState extends State<Body> {
     yt.close();
   }
 
-
-
-  void downloadVideo({String? link, bool? isVideo}) async {
+  Future<void> downloadVideo(BuildContext context,
+      {String? link, bool? isVideo}) async {
+    ValueNotifier<double> progressNotifier = ValueNotifier<double>(0);
+    ValueNotifier<String> speedNotifier = ValueNotifier<String>('0 B/s');
+    ValueNotifier<String> errorNotifier = ValueNotifier<String>('');
     var validURL = Uri.tryParse(link!)?.hasAbsolutePath ?? false;
-    print(validURL);
+    print("validURL: $validURL");
     setState(() {
       clicked = true;
     });
@@ -90,19 +100,18 @@ class _BodyState extends State<Body> {
         clicked = false;
       });
     } else {
-      late BuildContext dialogContext;
-
-      CustomDialog.show(
-        context,
-        title: "Downloading . . .",
-        isDissmissable: false,
-        center: Builder(builder: (BuildContext context) {
-          dialogContext = context;
-          return const Center(
-            child: CircularProgressIndicator(),
-          );
-        }),
-      );
+      showDialogue(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) {
+            return LoadingGifDialogue(
+              gifPath: "assets/images/play-download.gif",
+              loadingText: "Downloading . . .",
+              progressNotifier: progressNotifier,
+              speedNotifier: speedNotifier,
+              errorNotifier: errorNotifier,
+            );
+          });
 
       YoutubeExplode yt = YoutubeExplode();
 
@@ -122,121 +131,204 @@ class _BodyState extends State<Body> {
 
       try {
         var video = await yt.videos.get(link);
-        print(video);
+
         var thumbnailUrl = video.thumbnails.standardResUrl;
         // print(r'"');
         try {
           var manifest = await yt.videos.streamsClient.getManifest(link);
           var vid = await yt.videos.get(link);
-          print(vid.thumbnails.standardResUrl);
 
           if (isVideo!) {
-            var directory = await AndroidPathProvider.downloadsPath;
+            var directory = await AndroidPathProvider
+                .downloadsPath; // changed from AndroidPathProvider
             var info = manifest.muxed.sortByVideoQuality().first;
             var stream = yt.videos.streams.get(info);
             var newDr = "$directory/YouMp3 Video";
             var replaceTitle = charReplace(vid.title);
-            var file =
-                await File("$newDr/$replaceTitle.mp4").create(recursive: true);
-            var fileStream = file.openWrite();
-            await stream.pipe(fileStream);
-            await fileStream.flush();
-            await fileStream.close();
-            // Download the thumbnail image file
-            // var thumbnailResponse = await http.get(Uri.parse(thumbnailUrl));
-            // var thumbnailBytes = thumbnailResponse.bodyBytes;
-            // var thumbnailFile =
-            //     await File("$newDr/$replaceTitle.jpg").create(recursive: true);
-            // await thumbnailFile.writeAsBytes(thumbnailBytes);
+            var filePath = "$newDr/$replaceTitle.mp4";
+            var file = File(filePath);
+            if (await file.exists()) {
+              file.delete();
+            }
 
-            // Set the video thumbnail as the metadata of the downloaded video file
-            // await _setMetadata(file.path, thumbnailFile.path);
-            Navigator.pop(dialogContext);
+            var dio = Dio();
+            int lastReceived = 0;
+            int totalReceived = 0;
+            Stopwatch stopwatch = Stopwatch()..start();
+            Timer? timer;
 
-            // ignore: use_build_context_synchronously
-            await CustomDialog.show(
-              context,
-              title: "Download Video Complete",
-              top: const Center(
-                child: Icon(
-                  Icons.check_circle,
-                  size: 70,
-                  color: kPrimaryColor,
+// Start the timer to update speed every second
+            try {
+              timer = Timer.periodic(Duration(milliseconds: 500), (Timer t) {
+                // Calculate bytes per second
+                int bytesPerSecond = totalReceived - lastReceived;
+                lastReceived = totalReceived;
+
+                // Calculate speed
+                double speed =
+                    bytesPerSecond / 1; // Since the timer ticks every 1 second
+                speedNotifier.value = formatSpeed(speed);
+                print("speed: ${speedNotifier.value}");
+
+                stopwatch.reset();
+              });
+
+              await dio.download(
+                info.url.toString(),
+                filePath,
+                onReceiveProgress: (received, total) {
+                  if (total != -1) {
+                    // Calculate the progress
+                    double singleFileProgress = (received / total);
+                    progressNotifier.value = singleFileProgress * 100;
+
+                    // Update total received
+                    totalReceived = received;
+
+                    print('progress: ${progressNotifier.value}');
+                  }
+                },
+              );
+
+              // Clean up the timer after the download is complete
+              print("download url ${info.url}");
+              Navigator.pop(context);
+              timer.cancel();
+            } on DioException catch (e) {
+              errorNotifier.value = e.toString();
+              print("error: ${errorNotifier.value}");
+              timer?.cancel();
+            }
+
+            if (errorNotifier.value == "") {
+              await CustomDialog.show(
+                context,
+                title: "Download Video Complete",
+                top: const Center(
+                  child: Icon(
+                    Icons.check_circle,
+                    size: 70,
+                    color: kPrimaryColor,
+                  ),
                 ),
-              ),
-              center: Center(
-                child: Text(
-                  "Downloaded in ${file.path}",
+                center: Center(
+                  child: Text(
+                    "Downloaded in $filePath",
+                  ),
                 ),
-              ),
-              btnOkText: "OK",
-              btnOkOnPress: (() {
-                Navigator.pop(context);
-              }),
-            );
+                btnOkText: "OK",
+                btnOkOnPress: (() {
+                  Navigator.pop(context);
+                }),
+              );
+            }
             setState(() {
               clicked = false;
             });
           } else {
-            var directory = await AndroidPathProvider.downloadsPath;
-            var musicDirectory = await AndroidPathProvider.musicPath;
+            // for music
+            // to get the path
+            Directory? getDownloadPath =
+                await path_provider.getApplicationDocumentsDirectory();
+            String externalStorageDir = await AndroidPathProvider.musicPath;
+
+            //to check the path exist or not
+            // if (!await externalStorageDir.exists()) {
+            //   await externalStorageDir.create(recursive: true);
+            // }
+
             print("directoy music");
-            print(directory.toString());
-            var info = manifest.audioOnly.sortByBitrate().first;
+
+            var info = manifest.audio.withHighestBitrate();
             var stream = yt.videos.streams.get(info);
+
             var replaceTitle = charReplace(vid.title);
-            print(stream);
 
-            var newDr = "$directory/YouMp3 Music";
+            var filePath = "$externalStorageDir/$replaceTitle.mp3";
 
-            var file = await File("$musicDirectory/$replaceTitle.mp3")
-                .create(recursive: true);
-            var fileStream = file.openWrite();
-            print(fileStream);
-            await stream.pipe(fileStream);
+            var file = File(filePath);
+            if (await file.exists()) {
+              file.delete();
+            }
 
-            await fileStream.flush();
-            await fileStream.close();
-            // // Download the thumbnail image file
-            // var thumbnailResponse = await http.get(Uri.parse(thumbnailUrl));
-            // var thumbnailBytes = thumbnailResponse.bodyBytes;
-            // var thumbnailFile = await File("$musicDirectory/$replaceTitle.jpg")
-            //     .create(recursive: true);
-            // await thumbnailFile.writeAsBytes(thumbnailBytes);
+            var dio = Dio();
+            int lastReceived = 0;
+            int totalReceived = 0;
+            Stopwatch stopwatch = Stopwatch()..start();
+            Timer? timer;
 
-            // Set the music thumbnail as the metadata of the downloaded music file
-            // await _setMetadata(file.path, thumbnailFile.path);
-            Navigator.pop(context);
-            // ignore: use_build_context_synchronously
-            await CustomDialog.show(
-              context,
-              title: "Download Music Complete",
-              top: const Center(
-                child: Icon(
-                  Icons.check_circle,
-                  size: 70,
-                  color: kPrimaryColor,
+// Start the timer to update speed every second
+            try {
+              timer = Timer.periodic(Duration(milliseconds: 500), (Timer t) {
+                // Calculate bytes per second
+                int bytesPerSecond = totalReceived - lastReceived;
+                lastReceived = totalReceived;
+
+                // Calculate speed
+                double speed =
+                    bytesPerSecond / 1; // Since the timer ticks every 1 second
+                speedNotifier.value = formatSpeed(speed);
+                print("speed: ${speedNotifier.value}");
+
+                stopwatch.reset();
+              });
+
+              await dio.download(
+                info.url.toString(),
+                filePath,
+                onReceiveProgress: (received, total) {
+                  if (total != -1) {
+                    // Calculate the progress
+                    double singleFileProgress = (received / total);
+                    progressNotifier.value = singleFileProgress * 100;
+
+                    // Update total received
+                    totalReceived = received;
+
+                    print('progress: ${progressNotifier.value}');
+                  }
+                },
+              );
+
+              // Clean up the timer after the download is complete
+              print("download url ${info.url}");
+              Navigator.pop(context);
+              timer.cancel();
+            } on DioException catch (e) {
+              errorNotifier.value = e.toString();
+              print("error: ${errorNotifier.value}");
+              timer?.cancel();
+            }
+
+            if (errorNotifier.value == "") {
+              await CustomDialog.show(
+                context,
+                title: "Download Music Complete",
+                top: const Center(
+                  child: Icon(
+                    Icons.check_circle,
+                    size: 70,
+                    color: kPrimaryColor,
+                  ),
                 ),
-              ),
-              center: Center(
-                child: Text(
-                  "Downloaded in ${file.path}",
+                center: Center(
+                  child: Text(
+                    "Downloaded in $filePath",
+                  ),
                 ),
-              ),
-              btnOkText: "OK",
-              btnOkOnPress: (() {
-                Navigator.pop(context);
-              }),
-            );
+                btnOkText: "OK",
+                btnOkOnPress: (() {
+                  Navigator.pop(context);
+                }),
+              );
+            }
 
             setState(() {
               clicked = false;
             });
           }
         } on ArgumentError {
-          // ignore: use_build_context_synchronously
           Navigator.pop(context);
-          // ignore: use_build_context_synchronously
           CustomDialog.show(
             context,
             title: "Something Went Wrong",
@@ -249,12 +341,10 @@ class _BodyState extends State<Body> {
             clicked = false;
           });
         } on VideoUnavailableException {
-          // ignore: use_build_context_synchronously
           Navigator.pop(context);
-          // ignore: use_build_context_synchronously
           CustomDialog.show(
             context,
-            title: "This is video is not available",
+            title: "This video is not available",
             btnOkText: "I see",
             btnOkOnPress: () {
               Navigator.pop(context);
@@ -295,6 +385,20 @@ class _BodyState extends State<Body> {
   }
 
   void showDialog() {
+    // ValueNotifier<double> progressNotifier = ValueNotifier<double>(0);
+    // ValueNotifier<String> speedNotifier = ValueNotifier<String>('0 B/s');
+
+    // showDialogue(
+    //     context: context,
+    //     barrierDismissible: false,
+    //     builder: (context) {
+    //       return LoadingGifDialogue(
+    //         gifPath: "assets/images/play-download.gif",
+    //         loadingText: "Downloading . . .",
+    //         progressNotifier: progressNotifier,
+    //         speedNotifier: speedNotifier,
+    //       );
+    //     });
     CustomDialog.show(
       context,
       title: "Please paste the youtube link",
@@ -306,14 +410,17 @@ class _BodyState extends State<Body> {
     );
   }
 
-  Future<void> askPermission() async {
+  Future<void> askPermission(BuildContext context) async {
     PermissionStatus status = await Permission.storage.request();
-    if (status.isGranted == true) {
-      ThemeSnackBar.showSnackBar(context, "Extracting...");
-      search(_urlController.value.text.trim());
-    } else {
-      status;
-    }
+    print("status: $status");
+    ThemeSnackBar.showSnackBar(context, "Extracting...");
+    await search(_urlController.value.text.trim());
+    // if (status.isGranted) {
+    //   ThemeSnackBar.showSnackBar(context, "Extracting...");
+    //   await search(_urlController.value.text.trim());
+    // } else {
+    //   status;
+    // }
   }
 
   @override
@@ -329,24 +436,24 @@ class _BodyState extends State<Body> {
               TextFormField(
                 style: const TextStyle(color: kPrimaryColor),
                 cursorColor: kPrimaryColor,
-                onFieldSubmitted: (value) => search(value),
+                onFieldSubmitted: (value) async {
+                  await search(value);
+                },
                 controller: _urlController,
                 decoration: textFieldInputDecoration(
                     "Youtube Link", "Paste your link here"),
               ),
               const SizedBox(height: 10),
               ScaleTap(
-                onPressed: () {
+                onPressed: () async {
                   if (_urlController.text == "") {
                     showDialog();
                   } else {
-                    askPermission();
-
-                    print(_urlController.text.trim());
+                    await askPermission(context);
                   }
                 },
                 child: Container(
-                  padding: EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: kPrimaryColor,
                     borderRadius: BorderRadius.circular(10),
@@ -368,20 +475,21 @@ class _BodyState extends State<Body> {
                         ScaleTap(
                           onPressed: clicked
                               ? null
-                              : () {
-                                  downloadVideo(
+                              : () async {
+                                  await downloadVideo(
+                                    context,
                                     link: _urlController.value.text.trim(),
                                     isVideo: false,
                                   );
                                 },
                           child: Container(
-                            padding: EdgeInsets.all(10),
+                            padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(10),
                               boxShadow: [
                                 BoxShadow(
-                                  offset: Offset(0, 1),
+                                  offset: const Offset(0, 1),
                                   blurRadius: 12,
                                   color: inputBoxShadowColor.withOpacity(0.12),
                                   spreadRadius: 0,
@@ -400,20 +508,21 @@ class _BodyState extends State<Body> {
                         ScaleTap(
                           onPressed: clicked
                               ? null
-                              : () {
-                                  downloadVideo(
+                              : () async {
+                                  await downloadVideo(
+                                    context,
                                     link: _urlController.value.text.trim(),
                                     isVideo: true,
                                   );
                                 },
                           child: Container(
-                            padding: EdgeInsets.all(10),
+                            padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(10),
                               boxShadow: [
                                 BoxShadow(
-                                  offset: Offset(0, 1),
+                                  offset: const Offset(0, 1),
                                   blurRadius: 12,
                                   color: inputBoxShadowColor.withOpacity(0.12),
                                   spreadRadius: 0,
@@ -437,7 +546,7 @@ class _BodyState extends State<Body> {
                   borderRadius: BorderRadius.circular(10),
                   boxShadow: [
                     BoxShadow(
-                      offset: Offset(0, 1),
+                      offset: const Offset(0, 1),
                       blurRadius: 12,
                       color: inputBoxShadowColor.withOpacity(0.12),
                       spreadRadius: 0,
@@ -570,7 +679,11 @@ class _BodyState extends State<Body> {
               const SizedBox(
                 height: 10,
               ),
-
+              Text("© JAT",
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontFamily: DefaultTextStyle.of(context).style.fontFamily,
+                      color: kPrimaryColor)),
             ],
           ),
         ),
