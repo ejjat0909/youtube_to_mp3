@@ -6,17 +6,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_scale_tap/flutter_scale_tap.dart';
 import 'package:dio/dio.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:restart_app/restart_app.dart';
 import 'package:transparent_image/transparent_image.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import 'package:youtube_to_mp3/constant.dart';
+import 'package:youtube_to_mp3/main.dart';
 import 'package:youtube_to_mp3/public_component/custom_dialog.dart';
 import 'package:youtube_to_mp3/public_component/loading_gif_dialogue.dart';
 import 'package:youtube_to_mp3/public_component/method.dart';
 import 'package:youtube_to_mp3/public_component/show_dialogue.dart';
 import 'package:youtube_to_mp3/public_component/theme_snack_bar.dart';
 import 'package:youtube_to_mp3/theme.dart';
-
+import 'package:shorebird_code_push/shorebird_code_push.dart';
 import 'package:path_provider/path_provider.dart' as path_provider;
 
 class Body extends StatefulWidget {
@@ -159,7 +162,8 @@ class _BodyState extends State<Body> {
 
 // Start the timer to update speed every second
             try {
-              timer = Timer.periodic(Duration(milliseconds: 500), (Timer t) {
+              timer =
+                  Timer.periodic(const Duration(milliseconds: 500), (Timer t) {
                 // Calculate bytes per second
                 int bytesPerSecond = totalReceived - lastReceived;
                 lastReceived = totalReceived;
@@ -259,7 +263,8 @@ class _BodyState extends State<Body> {
 
 // Start the timer to update speed every second
             try {
-              timer = Timer.periodic(Duration(milliseconds: 500), (Timer t) {
+              timer =
+                  Timer.periodic(const Duration(milliseconds: 500), (Timer t) {
                 // Calculate bytes per second
                 int bytesPerSecond = totalReceived - lastReceived;
                 lastReceived = totalReceived;
@@ -414,13 +419,148 @@ class _BodyState extends State<Body> {
     PermissionStatus status = await Permission.storage.request();
     print("status: $status");
     ThemeSnackBar.showSnackBar(context, "Extracting...");
-    await search(_urlController.value.text.trim());
+    await search(_urlController.value.text);
     // if (status.isGranted) {
     //   ThemeSnackBar.showSnackBar(context, "Extracting...");
     //   await search(_urlController.value.text.trim());
     // } else {
     //   status;
     // }
+  }
+
+  String version = "";
+  final _isShorebirdAvailable = shorebirdCodePush.isShorebirdAvailable();
+  int? _currentPathVersion;
+  bool _isCheckingForUpdate = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // for shore bird updater
+    shorebirdCodePush.currentPatchNumber().then((currentPatchVersion) {
+      if (!mounted) return;
+      setState(() {
+        _currentPathVersion = currentPatchVersion;
+      });
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((timeStamp) async {
+      checkForUpdate();
+    });
+
+    PackageInfo.fromPlatform().then((value) {
+      version = "${value.version}+ ${value.buildNumber}";
+      setState(() {});
+    });
+  }
+
+  Future<void> checkForUpdate() async {
+    setState(() {
+      _isCheckingForUpdate = true;
+    });
+
+    final isUpdateAvailable =
+        await shorebirdCodePush.isNewPatchAvailableForDownload();
+
+    if (!mounted) return;
+
+    setState(() {
+      _isCheckingForUpdate = false;
+    });
+
+    if (isUpdateAvailable) {
+      _showUpdateAvailableBanner();
+    }
+  }
+
+  void _showUpdateAvailableBanner() {
+    ScaffoldMessenger.of(context).showMaterialBanner(
+      MaterialBanner(
+        content: const Text('Update available'),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
+              await _downloadUpdate();
+
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
+            },
+            child: const Text('Download'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _downloadUpdate() async {
+    _showDownloadingBanner();
+
+    await Future.wait([
+      shorebirdCodePush.downloadUpdateIfAvailable(),
+      // Add an artificial delay so the banner has enough time to animate in.
+      Future<void>.delayed(const Duration(milliseconds: 250)),
+    ]);
+
+    final isUpdateReadyToInstall =
+        await shorebirdCodePush.isNewPatchReadyToInstall();
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
+    if (isUpdateReadyToInstall) {
+      _showRestartBanner();
+    } else {
+      _showErrorBanner();
+    }
+  }
+
+  void _showRestartBanner() {
+    ScaffoldMessenger.of(context).showMaterialBanner(
+      const MaterialBanner(
+        content: Text('A new patch is ready!'),
+        actions: [
+          TextButton(
+            // Restart the app for the new patch to take effect.
+            onPressed: Restart.restartApp,
+            child: Text('Restart app'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showErrorBanner() {
+    ScaffoldMessenger.of(context).showMaterialBanner(
+      MaterialBanner(
+        content: const Text('An error occurred while downloading the update.'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
+            },
+            child: const Text('Dismiss'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDownloadingBanner() {
+    ScaffoldMessenger.of(context).showMaterialBanner(
+      const MaterialBanner(
+        content: Text('Downloading...'),
+        actions: [
+          SizedBox(
+            height: 14,
+            width: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -679,11 +819,27 @@ class _BodyState extends State<Body> {
               const SizedBox(
                 height: 10,
               ),
-              Text("© JAT",
-                  style: TextStyle(
-                      fontSize: 15,
-                      fontFamily: DefaultTextStyle.of(context).style.fontFamily,
-                      color: kPrimaryColor)),
+              Text(
+                "© JAT",
+                style: TextStyle(
+                    fontSize: 15,
+                    fontFamily: DefaultTextStyle.of(context).style.fontFamily,
+                    color: kPrimaryColor),
+              ),
+              Text(
+                "$version versions",
+                style: TextStyle(
+                    fontSize: 15,
+                    fontFamily: DefaultTextStyle.of(context).style.fontFamily,
+                    color: kPrimaryColor),
+              ),
+              Text(
+                "$version new versions",
+                style: TextStyle(
+                    fontSize: 15,
+                    fontFamily: DefaultTextStyle.of(context).style.fontFamily,
+                    color: kPrimaryColor),
+              ),
             ],
           ),
         ),

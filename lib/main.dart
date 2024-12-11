@@ -6,6 +6,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shorebird_code_push/shorebird_code_push.dart';
 // import 'package:path_provider/path_provider.dart';
 import 'package:transparent_image/transparent_image.dart';
 
@@ -14,6 +15,8 @@ import 'package:youtube_to_mp3/constant.dart';
 import 'package:youtube_to_mp3/public_component/method.dart';
 
 import 'package:youtube_to_mp3/ytmp3/ytmp3_screen.dart';
+
+ final shorebirdCodePush = ShorebirdCodePush();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
